@@ -50,9 +50,7 @@
         case 40: 
             //put data
             //d data
-            //if the app/owner exists, we'll update it. 
-            //if not, we'll create it.
-            //need to validate the data structure as it comes in.
+            
             $data = filter_input(INPUT_POST, "d", FILTER_DEFAULT);
             $result = putData($data, $db);
             echo($result[1]);
@@ -178,6 +176,9 @@
         }
     }
     function putData($data, $db){
+        //if the app/owner exists, we'll update it. 
+        //if not, we'll create it.
+        //need to validate the data structure as it comes in.
         $res = getApp($db);
         if ($res[0] == false){
             if (str_starts_with($res[1], "Error 300")){
@@ -205,6 +206,13 @@
             $sql->bindValue(":app", $_SESSION['appID']);
             $sql->bindValue(":owner", $_SESSION['pkUser']);
             $sql->bindValue(":data", $data);
+            if ($sql->execute()){
+                return [true, "Data updated successfully"];
+            }
+            else{
+                error_log("Error 403: " . $sql->error_get_last());
+                return [false, "Error 403: Database Error updating data"];
+            }
         } 
     
     }
