@@ -1,8 +1,14 @@
 <?php
+    header("Access-Control-Allow-Origin: http://localhost:5173");
+    header('Access-Control-Allow-Methods: GET, PUT, POST, DELETE, OPTIONS');
+    header('Access-Control-Max-Age: 1000');
+    header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+    header('Access-Control-Allow-Credentials: true');
+    session_start();
+    error_log("---- new request ---");
+    error_log(print_r($_POST), true);
     require_once("dbConn.php");
-    if (session_status() != PHP_SESSION_ACTIVE){
-        session_start();
-    }
+    
     $db = getConn();
     if ($db === false){
         error_log("Error 01: could not connect to database");
@@ -10,7 +16,17 @@
         die();
     }
     $rq = filter_input(INPUT_POST, "rq", FILTER_VALIDATE_INT);
+    error_log("RQ is " . $rq);
     switch($rq){
+        case 5:
+            //testing the interaction
+            $d = filter_input(INPUT_POST, "data", FILTER_DEFAULT);
+            echo("You sent me: " . $d);
+            break;
+        case 6: 
+            echo("Requested 6");
+            echo("Username: " . $_SESSION['userName']);
+            break;
         case 10:
             //login
             //u (username), p(password), a(appID)
@@ -20,14 +36,15 @@
                 $app = filter_input(INPUT_POST, "app", FILTER_VALIDATE_INT);
                 $results = checkLogin($u, $p, $db);
                 if ($results === true){
-                    $_SESSION['appID'] == $app;//storing as session so this one can only do this app
+                    
+                    $_SESSION['appID'] = $app;//storing as session so this one can only do this app
                     $appData = getApp($db);
                 }
-            else{
-                session_destroy(); //kill the session if we ran into an unexpected error
-                echo($results[1]);
-                break;
-            }
+                else{
+                    session_destroy(); //kill the session if we ran into an unexpected error
+                    echo($results[1]);
+                    break;
+                }
             }
             catch (Exception $e){
                 error_log($e);
@@ -76,7 +93,11 @@
             //if failure, they need to try again, or contact support.
 
             break;
-        
+        case 100:
+            //logout
+            session_destroy();
+            echo("User logged out");
+            break;
 
 
 
@@ -114,13 +135,18 @@
                         //then we need to update the password to what it already is.
                     }
                     $_SESSION['pkUser'] = $rows[0]['pkUser'];
+                    $_SESSION['userName'] = $u;
                     
                     return(true); //now it needs to request the right app
+                }
+                else{
+                    error_log("Error 101: invalid authentication request: invalid password for user '" . $u . "'");
+                    return [false, "Error 101: Authentication failed"];
                 }
             }
             else{
                 session_destroy();
-                error_log("Error 101: invalid authentication request: no user found for user '" . $u . "'");
+                error_log("Error 101: invalid authentication request: no user found for user '" . $u . "' password " . $p );
                 return [false,"Error 101: Authentication failed"];
 
             }
@@ -137,9 +163,9 @@
             error_log("Error 502: Attempt to create duplicate user '" . $u . "'");
             return [false, "Error 502: Username is taken"];
         }
-        $sql = $db->prepare("INSERT INTO tbluser (username, email, password) VALUES(:u, :e, :p)");
+        $sql = $db->prepare("INSERT INTO tblUser (username, email, password) VALUES(:u, :e, :p)");
         $sql->bindValue(":u", $u);
-        $sql->bindValue(":p", $p);
+        $sql->bindValue(":p", password_hash($p, PASSWORD_DEFAULT));
         $sql->bindValue(":e", $email);
         if ($sql->execute()){         
             return [true, "User created. Please login."];
@@ -152,9 +178,9 @@
 
     }
     function getApp($db){
-        $sql = $db->prepare("SELECT (* FROM tblData WHERE fkApp = :app AND fkOwner = :user");
-        $sql->bindValue(":app", $_SESSION['appID']);
-        $sql->bindValue(":user", $_SESSION['pkUser']);
+        $sql = $db->prepare("SELECT * FROM tblData WHERE fkApp = :app AND fkOwner = :user");
+        $sql->bindValue(":app", $_SESSION['appID'], PDO::PARAM_INT);
+        $sql->bindValue(":user", $_SESSION['pkUser'], PDO::PARAM_INT);
         if ($sql->execute()){
             $rows = $sql->fetchAll(PDO::FETCH_ASSOC);
             //should always be only one
