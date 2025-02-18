@@ -215,7 +215,7 @@
     }
     function sendActivationLink(string $email, string $activationCode){
         
-        $activationLink = "https://mclainonline.com/EdSuite/service.php?rq=6&email=$email&activationCode=$activationCode";
+        $activationLink = "https://mclainonline.com/EdSuite/service.php?rq=6&email=$email&ac=$activationCode";
         error_log("activation link: " . $activationLink);
         $subject = 'Please activate your account';
         $message = <<<MESSAGE
