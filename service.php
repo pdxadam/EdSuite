@@ -66,7 +66,13 @@
             $email = filter_input(INPUT_GET, "email", FILTER_VALIDATE_EMAIL);
             //find the user
             $code = filter_input(INPUT_GET, "ac", FILTER_DEFAULT);
-            checkActivationCode($email, $code, $db);
+            $results = checkActivationCode($email, $code, $db);
+            if ($results[0] == true){
+                echo("<h1>Congratulations</h1>You're registration has been verified. Please close this window and return to the application");
+            }
+            else{
+                echo("<h1>Oops</h1>It seems there was an error. Please contact our support team.");
+            }
             break;
     
         case 10:
@@ -228,8 +234,7 @@
         error_log("sent $message to $email");
 
     }
-    function checkActivationCode($email, $code, $db){
-        error_log("Checking user " . $email);
+    function checkActivationCode($email, $code, $db){        
         //find the user
         $sql = $db->prepare("SELECT pkUser, activation_code, activation_expiry < now() as expired FROM tblUser WHERE active = 0 and email = :email;");
         $sql->bindValue(":email", $email);
