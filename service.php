@@ -68,7 +68,7 @@
             $code = filter_input(INPUT_GET, "ac", FILTER_DEFAULT);
             $results = checkActivationCode($email, $code, $db);
             if ($results[0] == true){
-                echo("<h1>Congratulations</h1>You're registration has been verified. Please close this window and return to the application");
+                echo("<h1>Congratulations</h1>Your registration has been verified. Please close this window and return to the application");
             }
             else{
                 echo("<h1>Oops</h1>It seems there was an error. Please contact our support team.");
