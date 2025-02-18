@@ -27,6 +27,9 @@
         die();
     }
     $rq = filter_input(INPUT_POST, "rq", FILTER_VALIDATE_INT);
+    if (!$rq){
+        $rq = filter_input(INPUT_GET, "rq", FILTER_VALIDATE_INT);
+    }
     error_log("RQ is " . $rq);
     if (!isset($_SESSION['pkUser']) && $rq > 10){
         echo("Error 1: Not logged in");
@@ -58,10 +61,14 @@
             //if failure, they need to try again, or contact support.
 
             break;
-        case 6: 
-            echo("Requested 6");
-            echo("Username: " . $_SESSION['userName']);
+        case 6:
+            //activate account
+            $email = filter_input(INPUT_GET, "email", FILTER_VALIDATE_EMAIL);
+            //find the user
+            $code = filter_input(INPUT_GET, "ac", FILTER_DEFAULT);
+            checkActivationCode($email, $code, $db);
             break;
+    
         case 10:
             //login
             //e (email), p(password), a(appID)
@@ -118,7 +125,7 @@
             session_destroy();
             echo("User logged out");
             break;
-
+       
         default:
             echo("Error: request not recognized");
 
@@ -155,6 +162,7 @@
                     if (password_needs_rehash($rows[0]['password'], PASSWORD_DEFAULT)){
                         //then we need to update the password to what it already is.
                     }
+                    session_regenerate_id();
                     $_SESSION['pkUser'] = $rows[0]['pkUser'];
                     $_SESSION['email'] = $e;
                     $_SESSION['username'] = $rows[0]['email'];
@@ -181,22 +189,90 @@
         
     }
     function createUser($u, $p, $email, $db){
+        $activationCode = bin2hex(random_bytes(16));
         if (userExists($email, $db)){
             error_log("Error 52: Attempt to create duplicate user '" . $u . "'");
             return [false, "Error 52: That account already exists. Please login"];
         }
-        $sql = $db->prepare("INSERT INTO tblUser (username, email, password) VALUES(:u, :e, :p)");
+
+        $sql = $db->prepare("INSERT INTO tblUser (username, email, password, activation_code, activation_expiry) VALUES(:u, :e, :p, :ac, :ae)");
         $sql->bindValue(":u", $u);
         $sql->bindValue(":p", password_hash($p, PASSWORD_DEFAULT));
         $sql->bindValue(":e", $email);
-        if ($sql->execute()){         
-            return [true, "User created. Please login."];
+        $sql->bindValue(":ac", password_hash($activationCode, PASSWORD_DEFAULT));
+        $sql->bindValue(":ae", date('Y-m-d H:i:s', time() + (1 * 24 * 60 * 60)));
+        if ($sql->execute()){    
+            sendActivationLink($email, $activationCode);     
+            return [true, "User created. Please check your email to activate your account. Message will come from no_reply@mclainonline.com"];
         }
         else{
             error_log("Error 53: Failed creating user '" . $u . "' with email '" . $email . "'");
             return [false, "Error 53: Error creating user"];
         }
 
+
+
+    }
+    function sendActivationLink(string $email, string $activationCode){
+        
+        $activationLink = "https://mclainonline.com/EdSuite/service.php?rq=6&email=$email&activationCode=$activationCode";
+        error_log("activation link: " . $activationLink);
+        $subject = 'Please activate your account';
+        $message = <<<MESSAGE
+            Hi, 
+            Please click the following link to activate your account: 
+            $activationLink
+            MESSAGE;
+        $header = "From: no-reply@mclainonline.com";
+        mail($email, $subject, nl2br($message), $header);
+        error_log("sent $message to $email");
+
+    }
+    function checkActivationCode($email, $code, $db){
+        error_log("Checking user " . $email);
+        //find the user
+        $sql = $db->prepare("SELECT pkUser, activation_code, activation_expiry < now() as expired FROM tblUser WHERE active = 0 and email = :email;");
+        $sql->bindValue(":email", $email);
+        if ($sql->execute()){
+            $user = $sql->fetch(PDO::FETCH_ASSOC);
+            error_log($user['pkUser']);
+            if ($user){
+                if ($user['expired'] === 1){
+                    error_log("Expired code");
+                    deleteUserById($user['id'], $db); //delete them because the activation expire
+                    return [false, "expired activation, please register"];
+                }
+                error_log("Activation code: " . $code);
+                error_log("hashed activation code: " . password_hash($code, PASSWORD_DEFAULT));
+                error_log("data hash: " . $user['activation_code']);
+                if (password_verify($code, $user['activation_code'])){
+                    //now it's time to active the user
+                    error_log("Excellent. Now we can activate the user");
+                    return activateUser($user['pkUser'], $db);
+                }
+                else{
+                    error_log("Invalid activation code");
+                }
+    
+            }
+        }
+        else{
+            error_log("Error selecting user: ");
+        }
+        error_log("At the end with no results");
+        return [false, "Error retrieving user"];
+
+    }
+    function activateUser(int $userID, $db){
+        $sql = $db->prepare("UPDATE tblUser SET active = 1, 
+            activated_at = CURRENT_TIMESTAMP WHERE pkUser = :id");
+        $sql->bindValue(":id", $userID, PDO::PARAM_INT);
+        return [$sql->execute(), ""];
+    }
+    function deleteUserById($id, $db){
+        $sql = $db->prepare("DELETE FROM tblUser WHERE pkUser = :id");
+        $sql->bindValue(":id", $id, PDO::PARAM_INT);
+        return [$sql->execute(), ""];
 
     }
     function getApp($db){
