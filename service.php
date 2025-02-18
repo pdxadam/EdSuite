@@ -144,7 +144,7 @@
         if ($db == null){
             $db = getConn();
         }
-        $sql = $db->prepare("SELECT * FROM tblUser WHERE email = :email");
+        $sql = $db->prepare("SELECT * FROM tblUser WHERE email = :email AND active = 1");
         $sql->bindValue(":email", $e);
         if ($sql->execute()){
             $rows = $sql->fetchAll(PDO::FETCH_ASSOC);
