@@ -1,12 +1,23 @@
 <?php
-    header("Access-Control-Allow-Origin: http://localhost:5173");
+    // 2/17/2025: switching to login by email instead of username
+    
+    $allowedOrigins = ["http://localhost:5173","http://localhost:5174"];
+    if(in_array($_SERVER['HTTP_ORIGIN'], $allowedOrigins))
+    {
+	    $http_origin = $_SERVER['HTTP_ORIGIN'];
+    } else {
+        error_log($http_origin);
+	    $http_origin = "http://localhost:5173";
+    }
+    header("Access-Control-Allow-Origin: " . $http_origin);
     header('Access-Control-Allow-Methods: GET, PUT, POST, DELETE, OPTIONS');
     header('Access-Control-Max-Age: 1000');
     header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
     header('Access-Control-Allow-Credentials: true');
     session_start();
+
     error_log("---- new request ---");
-    error_log(print_r($_POST), true);
+    // error_log(print_r($_POST), true);
     require_once("dbConn.php");
     
     $db = getConn();
@@ -17,11 +28,35 @@
     }
     $rq = filter_input(INPUT_POST, "rq", FILTER_VALIDATE_INT);
     error_log("RQ is " . $rq);
+    if (!isset($_SESSION['pkUser']) && $rq > 10){
+        echo("Error 1: Not logged in");
+        die();
+    }
     switch($rq){
         case 5:
-            //testing the interaction
-            $d = filter_input(INPUT_POST, "data", FILTER_DEFAULT);
-            echo("You sent me: " . $d);
+            //create account
+            //Right now, any old schmuck can create an email
+            $u = filter_input(INPUT_POST, 'u', FILTER_DEFAULT);
+            $p = filter_input(INPUT_POST, 'p', FILTER_DEFAULT);
+            $email = filter_input(INPUT_POST, 'e', FILTER_VALIDATE_EMAIL);
+            if ($email == false){
+                error_log("Error 50.  invalid email " . $email);
+                echo ("Error 50: invalid email");
+                session_destroy();
+                break;
+            }
+            $result = createUser($u, $p, $email, $db);
+            session_destroy();
+            if ($result[0] == true){
+                echo("Success");
+            }
+            else{
+                echo($result[1]);
+            }
+            //if we create the user, we'll tell them success.  If it fails, we'll tell them so. 
+            //if success, they need to proceed to login.
+            //if failure, they need to try again, or contact support.
+
             break;
         case 6: 
             echo("Requested 6");
@@ -29,20 +64,24 @@
             break;
         case 10:
             //login
-            //u (username), p(password), a(appID)
+            //e (email), p(password), a(appID)
             try{
-                $u = filter_input(INPUT_POST, "u", FILTER_DEFAULT);
+                $e = filter_input(INPUT_POST, "e", FILTER_VALIDATE_EMAIL);
                 $p = filter_input(INPUT_POST, "p", FILTER_DEFAULT);
                 $app = filter_input(INPUT_POST, "app", FILTER_VALIDATE_INT);
-                $results = checkLogin($u, $p, $db);
+                $results = checkLogin($e, $p, $db);
                 if ($results === true){
                     
                     $_SESSION['appID'] = $app;//storing as session so this one can only do this app
-                    $appData = getApp($db);
+                    echo("Success.");
+                    
+                    
+                
                 }
                 else{
                     session_destroy(); //kill the session if we ran into an unexpected error
-                    echo($results[1]);
+                   echo($results[1]);
+                    
                     break;
                 }
             }
@@ -73,42 +112,24 @@
             echo($result[1]);
             
             break;
-        case 50:
-            //create account
-            //Right now, any old schmuck can create an email
-            $u = filter_input(INPUT_POST, 'username', FILTER_DEFAULT);
-            $p = filter_input(INPUT_POST, 'password', FILTER_DEFAULT);
-            $email = filter_input(INPUT_POST, 'email', FILTER_VALIDATE_EMAIL);
-            if ($email == false){
-                error_log("Error 500.  invalid email " . $email);
-                echo ("Error 500: invalid email");
-                session_destroy();
-                break;
-            }
-            $result = createUser($u, $p, $email, $db);
-            session_destroy();
-            echo($result[1]);
-            //if we create the user, we'll tell them success.  If it fails, we'll tell them so. 
-            //if success, they need to proceed to login.
-            //if failure, they need to try again, or contact support.
-
-            break;
+        
         case 100:
             //logout
             session_destroy();
             echo("User logged out");
             break;
 
-
+        default:
+            echo("Error: request not recognized");
 
     }
     $db = null; //close the database every time.
 
     // ----- end of main code, functions after--------------------------------
     
-    function userExists($u, $db){ // returns true if the username is taken. False if it is not
-        $sql = $db->prepare("SELECT count(*) as myCount FROM tblUser WHERE userName = :u");
-        $sql->bindValue(":u", $u);
+    function userExists($e, $db){ // returns true if the username is taken. False if it is not
+        $sql = $db->prepare("SELECT count(*) as myCount FROM tblUser WHERE email = :e");
+        $sql->bindValue(":e", $e);
         if ($sql->execute()){
                 $row = $sql->fetch(PDO::FETCH_ASSOC);
                 return $row['myCount'] == 1;
@@ -117,14 +138,14 @@
             return false;
         }
     }
-    function checkLogin($u, $p, $db = null){
+    function checkLogin($e, $p, $db = null){
         //returns true and sets $_SESSION[pkUser] if success
         //returns array of [false, "error message"] if failed
         if ($db == null){
             $db = getConn();
         }
-        $sql = $db->prepare("SELECT * FROM tblUser WHERE username = :username");
-        $sql->bindValue(":username", $u);
+        $sql = $db->prepare("SELECT * FROM tblUser WHERE email = :email");
+        $sql->bindValue(":email", $e);
         if ($sql->execute()){
             $rows = $sql->fetchAll(PDO::FETCH_ASSOC);
             if (count($rows) == 1){
@@ -135,33 +156,34 @@
                         //then we need to update the password to what it already is.
                     }
                     $_SESSION['pkUser'] = $rows[0]['pkUser'];
-                    $_SESSION['userName'] = $u;
+                    $_SESSION['email'] = $e;
+                    $_SESSION['username'] = $rows[0]['email'];
                     
                     return(true); //now it needs to request the right app
                 }
                 else{
-                    error_log("Error 101: invalid authentication request: invalid password for user '" . $u . "'");
+                    error_log("Error 101: invalid authentication request: invalid password for email '" . $e . "'");
                     return [false, "Error 101: Authentication failed"];
                 }
             }
             else{
                 session_destroy();
-                error_log("Error 101: invalid authentication request: no user found for user '" . $u . "' password " . $p );
+                error_log("Error 101: invalid authentication request: no user found for user '" . $e . "' password " . $p );
                 return [false,"Error 101: Authentication failed"];
 
             }
         }
         else{
             session_destroy();
-            error_log("Error 102: authentication failed for user '" . $u . "'");
+            error_log("Error 102: authentication failed for user '" . $e . "'");
             return [false, "Error 102: Authentication failed"];
         }
         
     }
     function createUser($u, $p, $email, $db){
-        if (userExists($u, $db)){
-            error_log("Error 502: Attempt to create duplicate user '" . $u . "'");
-            return [false, "Error 502: Username is taken"];
+        if (userExists($email, $db)){
+            error_log("Error 52: Attempt to create duplicate user '" . $u . "'");
+            return [false, "Error 52: That account already exists. Please login"];
         }
         $sql = $db->prepare("INSERT INTO tblUser (username, email, password) VALUES(:u, :e, :p)");
         $sql->bindValue(":u", $u);
@@ -171,8 +193,8 @@
             return [true, "User created. Please login."];
         }
         else{
-            error_log("Error 503: Failed creating user '" . $u . "' with email '" . $email . "'");
-            return [false, "Error 503: Error creating user"];
+            error_log("Error 53: Failed creating user '" . $u . "' with email '" . $email . "'");
+            return [false, "Error 53: Error creating user"];
         }
 
 
